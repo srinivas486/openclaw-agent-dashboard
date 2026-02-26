@@ -350,7 +350,7 @@ function sendHandshake() {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: 'dashboard',
+        id: 'cli',
         version: '1.0.0',
         platform: 'web',
         mode: 'operator'
@@ -362,7 +362,10 @@ function sendHandshake() {
       userAgent: 'openclaw-dashboard/1.0.0',
       device: state.challengeNonce ? {
         id: deviceId,
-        nonce: state.challengeNonce
+        nonce: state.challengeNonce,
+        publicKey: '',
+        signature: '',
+        signedAt: Date.now()
       } : undefined
     }
   };
