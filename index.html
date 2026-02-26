@@ -331,7 +331,7 @@ function connect() {
   setStatus('connecting');
   try {
     state.ws = new WebSocket(wsUrl);
-    state.ws.onopen = () => { log('WebSocket connected, waiting for challenge...', 'info'); state.challengeNonce = null; /* Don't send handshake yet - wait for connect.challenge */ };
+    state.ws.onopen = () => { log('WebSocket connected, sending handshake...', 'info'); sendHandshake(); };
     state.ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); handleMessage(msg); } catch (err) { log(`Parse error: ${err.message}`, 'error'); } };
     state.ws.onclose = () => { log('WebSocket closed', 'warn'); setStatus('disconnected'); state.connected = false; stopPolling(); attemptReconnect(); };
     state.ws.onerror = (e) => { log('WebSocket error', 'error'); };
@@ -350,23 +350,17 @@ function sendHandshake() {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: 'cli',
+        id: 'webchat-ui',
         version: '1.0.0',
         platform: 'web',
-        mode: 'operator'
+        mode: 'ui'
       },
       role: 'operator',
       scopes: ['operator.read', 'operator.write'],
       auth: state.gatewayToken ? { token: state.gatewayToken } : {},
       locale: 'en-US',
-      userAgent: 'openclaw-dashboard/1.0.0',
-      device: state.challengeNonce ? {
-        id: deviceId,
-        nonce: state.challengeNonce,
-        publicKey: '',
-        signature: '',
-        signedAt: Date.now()
-      } : undefined
+      userAgent: 'openclaw-dashboard/1.0.0'
+      // device omitted - optional when dangerouslyDisableDeviceAuth is true
     }
   };
   state.ws.send(JSON.stringify(req));
@@ -374,13 +368,6 @@ function sendHandshake() {
 }
 
 function handleMessage(msg) {
-  // Capture challenge nonce and send handshake
-  if (msg.type === 'event' && msg.event === 'connect.challenge') {
-    state.challengeNonce = msg.payload?.nonce;
-    log(`Received connect.challenge, nonce: ${state.challengeNonce}`, 'info');
-    sendHandshake();
-    return;
-  }
   if (msg.type === 'res' && msg.id === '1') {
     if (msg.ok && msg.payload?.type === 'hello-ok') { log(`Connected! Gateway: ${msg.payload.version || 'unknown'}`, 'success'); setStatus('connected'); state.connected = true; state.reconnectAttempts = 0; subscribeEvents(); startPolling(); fetchAgents(); fetchSessions(); fetchSubagents(); }
     else { log(`Handshake failed: ${msg.error || JSON.stringify(msg)}`, 'error'); setStatus('disconnected'); }
