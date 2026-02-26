@@ -296,7 +296,8 @@ const state = {
   ws: null, connected: false, reconnectAttempts: 0, maxReconnectAttempts: 5, reconnectDelay: 1000,
   gatewayIP: 'localhost', gatewayPort: 18789, gatewayToken: '',
   agents: [], sessions: [], subagents: [], skillUsage: {}, toolUsage: {},
-  usage: { providers: [], models: {} }, activityHistory: Array(24).fill(0), taskHistory: [], tasks: {}
+  usage: { providers: [], models: {} }, activityHistory: Array(24).fill(0), taskHistory: [], tasks: {},
+  challengeNonce: null
 };
 
 let eventPause = false, activityChart = null, modelChart = null;
@@ -330,7 +331,7 @@ function connect() {
   setStatus('connecting');
   try {
     state.ws = new WebSocket(wsUrl);
-    state.ws.onopen = () => { log('WebSocket connected, sending handshake...', 'info'); sendHandshake(); };
+    state.ws.onopen = () => { log('WebSocket connected, waiting for challenge...', 'info'); state.challengeNonce = null; /* Don't send handshake yet - wait for connect.challenge */ };
     state.ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); handleMessage(msg); } catch (err) { log(`Parse error: ${err.message}`, 'error'); } };
     state.ws.onclose = () => { log('WebSocket closed', 'warn'); setStatus('disconnected'); state.connected = false; stopPolling(); attemptReconnect(); };
     state.ws.onerror = (e) => { log('WebSocket error', 'error'); };
@@ -340,11 +341,43 @@ function connect() {
 function disconnect() { if (state.ws) { state.ws.close(); state.ws = null; } setStatus('disconnected'); state.connected = false; stopPolling(); }
 
 function sendHandshake() {
-  const req = { type: 'req', id: '1', method: 'connect', params: { client: { id: 'dashboard', name: 'OpenClaw Dashboard' }, role: 'operator', scopes: ['operator.read'], auth: state.gatewayToken ? { token: state.gatewayToken } : {} } };
+  const deviceId = 'dashboard-' + Math.random().toString(36).substr(2, 9);
+  const req = {
+    type: 'req',
+    id: '1',
+    method: 'connect',
+    params: {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: 'dashboard',
+        version: '1.0.0',
+        platform: 'web',
+        mode: 'operator'
+      },
+      role: 'operator',
+      scopes: ['operator.read', 'operator.write'],
+      auth: state.gatewayToken ? { token: state.gatewayToken } : {},
+      locale: 'en-US',
+      userAgent: 'openclaw-dashboard/1.0.0',
+      device: state.challengeNonce ? {
+        id: deviceId,
+        nonce: state.challengeNonce
+      } : undefined
+    }
+  };
   state.ws.send(JSON.stringify(req));
+  log('Sent handshake with nonce', 'info');
 }
 
 function handleMessage(msg) {
+  // Capture challenge nonce and send handshake
+  if (msg.type === 'event' && msg.event === 'connect.challenge') {
+    state.challengeNonce = msg.payload?.nonce;
+    log(`Received connect.challenge, nonce: ${state.challengeNonce}`, 'info');
+    sendHandshake();
+    return;
+  }
   if (msg.type === 'res' && msg.id === '1') {
     if (msg.ok && msg.payload?.type === 'hello-ok') { log(`Connected! Gateway: ${msg.payload.version || 'unknown'}`, 'success'); setStatus('connected'); state.connected = true; state.reconnectAttempts = 0; subscribeEvents(); startPolling(); fetchAgents(); fetchSessions(); fetchSubagents(); }
     else { log(`Handshake failed: ${msg.error || JSON.stringify(msg)}`, 'error'); setStatus('disconnected'); }
