@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw Agent Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d0d;
+      --surface:   #1a1a1a;
+      --surface2:  #252525;
+      --border:    #333;
+      --accent-pink: #cd248b;
+      --accent-blue:#348ec6;
+      --accent-purple:#b152c7;
+      --text:      #eee;
+      --text-dim: #999;
+      --success:   #22c55e;
+      --warn:      #f59e0b;
+      --error:     #ef4444;
+      --info:      #60a5fa;
+    }
+
+    html { font-size: 14px; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; -webkit-font-smoothing: antialiased; padding-bottom: 2rem; }
+
+    #app { max-width: 1600px; margin: 0 auto; padding: 0 1rem; }
+
+    header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem; }
+    h1 { font-size: 1.5rem; font-weight: 800; background: linear-gradient(90deg, var(--accent-pink), var(--accent-purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .header-controls { display: flex; align-items: center; gap: 0.75rem; }
+
+    .conn-bar { display: flex; align-items: center; gap: 0.75rem; background: var(--surface); padding: 0.6rem 1rem; border-radius: 8px; flex-wrap: wrap; }
+    .conn-bar input { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 0.35rem 0.6rem; font-size: 0.85rem; }
+    .conn-bar input:focus { border-color: var(--accent-blue); outline: none; }
+    .conn-bar input[type="password"] { width: 120px; }
+
+    .badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+    .badge-connected  { background: rgba(34,197,94,0.15); color: var(--success); }
+    .badge-disconnected{background: rgba(239,68,68,0.15); color: var(--error); }
+    .badge-connecting{ background: rgba(245,158,11,0.15); color: var(--warn); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1rem; }
+    @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; background: var(--surface2); cursor: pointer; user-select: none; }
+    .panel-header:hover { background: #2a2a2a; }
+    .panel-title { font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; }
+    .panel-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+    .panel.open .panel-body { max-height: 2000px; }
+    .panel-toggle { transition: transform 0.2s; font-size: 0.7rem; color: var(--text-dim); }
+    .panel.open .panel-toggle { transform: rotate(180deg); }
+    .panel-content { padding: 1rem; }
+
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; }
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .card h4 { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.25rem; }
+    .card .value { font-size: 1.1rem; font-weight: 700; }
+
+    .status-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+    .status-active  { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-idle    { background: rgba(156,163,175,0.2); color: var(--text-dim); }
+    .status-error   { background: rgba(239,68,68,0.2); color: var(--error); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th { text-align: left; padding: 0.5rem; color: var(--text-dim); font-weight: 600; border-bottom: 1px solid var(--border); }
+    td { padding: 0.4rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .event-log { background: #0a0a0a; border: 1px solid var(--border); border-radius: 6px; height: 300px; overflow-y: auto; padding: 0.5rem; font-family: "Courier New", monospace; font-size: 0.75rem; line-height: 1.6; }
+    .event-log .entry { padding: 0.15rem 0; }
+    .event-log .ts { color: var(--text-dim); margin-right: 0.5rem; }
+    .event-log .info  { color: var(--text); }
+    .event-log .success { color: var(--success); }
+    .event-log .warn  { color: var(--warn); }
+    .event-log .error { color: var(--error); }
+
+    .btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s, transform 0.1s; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { opacity: 0.85; }
+    .btn-primary { background: var(--accent-blue); color: #fff; }
+    .btn-danger  { background: var(--error); color: #fff; }
+    .btn-ghost   { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+    .bar-chart { display: flex; flex-direction: column; gap: 0.4rem; }
+    .bar-row { display: flex; align-items: center; gap: 0.5rem; }
+    .bar-label { width: 100px; font-size: 0.75rem; color: var(--text-dim); text-align: right; flex-shrink: 0; }
+    .bar-track { flex: 1; background: var(--bg); height: 18px; border-radius: 3px; overflow: hidden; }
+    .bar-fill  { height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); border-radius: 3px; transition: width 0.3s; }
+    .bar-value { width: 50px; font-size: 0.75rem; color: var(--text); flex-shrink: 0; }
+
+    .stats-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .stat-card { flex: 1; min-width: 120px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .stat-card label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .val { font-size: 1.3rem; font-weight: 700; color: var(--text); margin-top: 0.2rem; }
+
+    .hidden { display: none !important; }
+    .mt-1 { margin-top: 0.5rem; }
+    .mt-2 { margin-top: 1rem; }
+    .flex { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .flex-between { display: flex; align-items: center; justify-content: space-between; }
+    .text-dim { color: var(--text-dim); }
+    .text-mono { font-family: "Courier New", monospace; }
+
+    #settings-panel { max-width: 500px; }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+    .setting-row label { font-size: 0.85rem; }
+    .setting-row input { width: 200px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>OpenClaw Agent Dashboard</h1>
+    <div class="header-controls">
+      <div class="conn-bar">
+        <input type="text" id="gateway-ip" placeholder="Gateway IP" value="localhost" />
+        <input type="number" id="gateway-port" placeholder="Port" value="18789" style="width:80px" />
+        <input type="password" id="gateway-token" placeholder="Token (optional)" />
+        <button class="btn btn-primary" id="btn-connect" onclick="toggleConnection()">Connect</button>
+        <span id="conn-status" class="badge badge-disconnected"><span class="dot"></span>Disconnected</span>
+      </div>
+      <button class="btn btn-ghost" onclick="toggleSettings()">⚙️</button>
+    </div>
+  </header>
+
+  <div class="panel" id="settings-panel">
+    <div class="panel-header" onclick="togglePanel('settings-panel')">
+      <span class="panel-title">⚙️ Settings</span>
+      <span class="panel-toggle">▼</span>
+    </div>
+    <div class="panel-body">
+      <div class="panel-content">
+        <div class="setting-row">
+          <label>Gateway IP</label>
+          <input type="text" id="sett-ip" value="localhost" />
+        </div>
+        <div class="setting-row">
+          <label>Port</label>
+          <input type="number" id="sett-port" value="18789" />
+        </div>
+        <div class="setting-row">
+          <label>Auth Token</label>
+          <input type="password" id="sett-token" placeholder="Optional" />
+        </div>
+        <div class="flex mt-1">
+          <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+          <button class="btn btn-ghost" onclick="exportJSON()">📥 Export JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-grid mt-2">
+    <div class="panel open" style="grid-column: span 2;">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">📟 Real-Time Event Feed</span>
+        <div class="flex">
+          <button class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem" onclick="eventPause=!eventPause;this.textContent=eventPause?'▶️ Resume':'⏸️ Pause'">⏸️ Pause</button>
+          <button class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem" onclick="clearEventLog()">Clear</button>
+          <span class="panel-toggle">▼</span>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <div class="event-log" id="event-log"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel open">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">🤖 Agents</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <div class="card-grid" id="agent-cards"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel open">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">💬 Active Sessions</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <table>
+            <thead><tr><th>Session</th><th>Kind</th><th>Channel</th><th>Duration</th><th>Msgs</th><th>Status</th></tr></thead>
+            <tbody id="sessions-tbody"></tbody>
+          </table>
+          <div id="no-sessions" class="text-dim mt-1">No active sessions</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">🧩 Sub-Agents</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <div class="card-grid" id="subagent-cards"></div>
+          <div id="no-subagents" class="text-dim">No active sub-agents</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">🛠️ Skill Usage</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <div class="bar-chart" id="skill-chart"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">🔧 Tool Usage</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <div class="bar-chart" id="tool-chart"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">✅ Task History</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <table>
+            <thead><tr><th>Session</th><th>Task</th><th>Status</th><th>Duration</th></tr></thead>
+            <tbody id="tasks-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel open">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">💰 Provider Usage</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <div class="stats-row" id="usage-stats"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">📈 Activity (24h)</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <canvas id="activity-chart" height="180"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" onclick="togglePanel(this.parentElement)">
+        <span class="panel-title">🧠 Model Usage</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-body">
+        <div class="panel-content">
+          <canvas id="model-chart" height="180"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = {
+  ws: null, connected: false, reconnectAttempts: 0, maxReconnectAttempts: 5, reconnectDelay: 1000,
+  gatewayIP: 'localhost', gatewayPort: 18789, gatewayToken: '',
+  agents: [], sessions: [], subagents: [], skillUsage: {}, toolUsage: {},
+  usage: { providers: [], models: {} }, activityHistory: Array(24).fill(0), taskHistory: [], tasks: {}
+};
+
+let eventPause = false, activityChart = null, modelChart = null;
+
+function $(id) { return document.getElementById(id); }
+
+function log(msg, level = 'info') {
+  if (eventPause) return;
+  const el = $('event-log');
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8);
+  const div = document.createElement('div');
+  div.className = `entry ${level}`;
+  div.innerHTML = `<span class="ts">[${ts}]</span><span class="${level}">${msg}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearEventLog() { $('event-log').innerHTML = ''; }
+function togglePanel(panel) { if (typeof panel === 'string') panel = $(panel); panel.classList.toggle('open'); }
+function toggleSettings() { togglePanel('settings-panel'); }
+
+function toggleConnection() { state.connected ? disconnect() : connect(); }
+
+function connect() {
+  state.gatewayIP = $('gateway-ip').value || 'localhost';
+  state.gatewayPort = parseInt($('gateway-port').value, 10) || 18789;
+  state.gatewayToken = $('gateway-token').value || '';
+  const wsUrl = `ws://${state.gatewayIP}:${state.gatewayPort}`;
+  log(`Connecting to ${wsUrl}...`, 'info');
+  setStatus('connecting');
+  try {
+    state.ws = new WebSocket(wsUrl);
+    state.ws.onopen = () => { log('WebSocket connected, sending handshake...', 'info'); sendHandshake(); };
+    state.ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); handleMessage(msg); } catch (err) { log(`Parse error: ${err.message}`, 'error'); } };
+    state.ws.onclose = () => { log('WebSocket closed', 'warn'); setStatus('disconnected'); state.connected = false; stopPolling(); attemptReconnect(); };
+    state.ws.onerror = (e) => { log('WebSocket error', 'error'); };
+  } catch (err) { log(`Connection failed: ${err.message}`, 'error'); setStatus('disconnected'); }
+}
+
+function disconnect() { if (state.ws) { state.ws.close(); state.ws = null; } setStatus('disconnected'); state.connected = false; stopPolling(); }
+
+function sendHandshake() {
+  const req = { type: 'req', id: '1', method: 'connect', params: { client: { id: 'dashboard', name: 'OpenClaw Dashboard' }, role: 'operator', scopes: ['operator.read'], auth: state.gatewayToken ? { token: state.gatewayToken } : {} } };
+  state.ws.send(JSON.stringify(req));
+}
+
+function handleMessage(msg) {
+  if (msg.type === 'res' && msg.id === '1') {
+    if (msg.ok && msg.payload?.type === 'hello-ok') { log(`Connected! Gateway: ${msg.payload.version || 'unknown'}`, 'success'); setStatus('connected'); state.connected = true; state.reconnectAttempts = 0; subscribeEvents(); startPolling(); fetchAgents(); fetchSessions(); fetchSubagents(); }
+    else { log(`Handshake failed: ${msg.error || JSON.stringify(msg)}`, 'error'); setStatus('disconnected'); }
+    return;
+  }
+  if (msg.type === 'event') { handleEvent(msg); }
+}
+
+function subscribeEvents() {
+  const events = ['agent', 'presence', 'tick', 'health', 'heartbeat'];
+  for (const evt of events) { state.ws.send(JSON.stringify({ type: 'req', id: `sub-${evt}`, method: 'events.subscribe', params: { event: evt } })); }
+  log(`Subscribed to events: ${events.join(', ')}`, 'info');
+}
+
+function handleEvent(msg) {
+  const evt = msg.event || msg.payload?.event || 'unknown';
+  const data = msg.payload || msg.data || {};
+  log(`${evt}: ${JSON.stringify(data).slice(0,100)}`, 'info');
+  const hour = new Date().getHours();
+  state.activityHistory[hour] = (state.activityHistory[hour] || 0) + 1;
+  updateActivityChart();
+}
+
+function attemptReconnect() {
+  if (state.reconnectAttempts >= state.maxReconnectAttempts) { log('Max reconnect attempts reached', 'error'); return; }
+  state.reconnectAttempts++;
+  const delay = state.reconnectDelay * Math.pow(2, state.reconnectAttempts - 1);
+  log(`Reconnecting in ${delay}ms (attempt ${state.reconnectAttempts})...`, 'warn');
+  setTimeout(connect, delay);
+}
+
+function setStatus(status) {
+  const el = $('conn-status'); const btn = $('btn-connect');
+  el.className = `badge badge-${status}`;
+  el.innerHTML = `<span class="dot"></span>${status.charAt(0).toUpperCase() + status.slice(1)}`;
+  btn.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
+}
+
+async function apiCall(method, path) {
+  const url = `http://${state.gatewayIP}:${state.gatewayPort}/api/${path.replace(/^\//, '')}`;
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (state.gatewayToken) opts.headers['Authorization'] = `Bearer ${state.gatewayToken}`;
+  try { const res = await fetch(url, opts); if (!res.ok) throw new Error(`${res.status} ${res.statusText}`); return await res.json(); }
+  catch (err) { log(`API error: ${method} ${path} - ${err.message}`, 'error'); return null; }
+}
+
+function startPolling() { state.sessionPollTimer = setInterval(fetchSessions, 5000); state.usagePollTimer = setInterval(fetchUsage, 30000); }
+function stopPolling() { if (state.sessionPollTimer) clearInterval(state.sessionPollTimer); if (state.usagePollTimer) clearInterval(state.usagePollTimer); }
+
+async function fetchAgents() { const data = await apiCall('GET', '/agents'); if (!data) return; state.agents = Array.isArray(data) ? data : (data.agents || []); renderAgents(); }
+async function fetchSessions() { const data = await apiCall('GET', '/sessions'); if (!data) return; state.sessions = Array.isArray(data) ? data : (data.sessions || []); renderSessions(); }
+async function fetchSubagents() { const data = await apiCall('GET', '/subagents'); if (!data) return; state.subagents = Array.isArray(data) ? data : (data.subagents || []); renderSubagents(); }
+async function fetchUsage() { const data = await apiCall('GET', '/usage'); if (!data) return; state.usage = data; renderUsage(); }
+
+function renderAgents() {
+  const el = $('agent-cards');
+  if (!state.agents.length) { el.innerHTML = '<div class="text-dim">No agents found</div>'; return; }
+  el.innerHTML = state.agents.map(a => `<div class="card"><h4>${a.id || a.agentId}</h4><span class="status-badge ${a.status === 'active' ? 'status-active' : 'status-idle'}">${a.status || 'idle'}</span></div>`).join('');
+}
+
+function renderSessions() {
+  const tbody = $('sessions-tbody'); const noSessions = $('no-sessions');
+  if (!state.sessions.length) { tbody.innerHTML = ''; noSessions.classList.remove('hidden'); return; }
+  noSessions.classList.add('hidden');
+  tbody.innerHTML = state.sessions.map(s => `<tr><td class="text-mono">${s.sessionKey || s.id || '—'}</td><td>${s.kind || 'chat'}</td><td>${s.channel || '—'}</td><td>${formatDuration(s.duration || s.uptime)}</td><td>${s.messages || s.messageCount || 0}</td><td><span class="status-badge ${s.status === 'active' ? 'status-active' : 'status-idle'}">${s.status || 'active'}</span></td></tr>`).join('');
+}
+
+function renderSubagents() {
+  const el = $('subagent-cards'); const noSubs = $('no-subagents');
+  if (!state.subagents.length) { el.innerHTML = ''; noSubs.classList.remove('hidden'); return; }
+  noSubs.classList.add('hidden');
+  el.innerHTML = state.subagents.map(sa => `<div class="card"><h4>${sa.label || sa.agentId}</h4><span class="status-badge ${sa.status === 'running' ? 'status-active' : 'status-idle'}">${sa.status || 'idle'}</span><div class="text-dim" style="font-size:0.7rem;margin-top:0.3rem">${sa.parentSession || ''}</div></div>`).join('');
+}
+
+function renderUsage() {
+  const statsEl = $('usage-stats'); const providers = state.usage.providers || [];
+  if (!providers.length) { statsEl.innerHTML = '<div class="text-dim">No usage data</div>'; return; }
+  statsEl.innerHTML = providers.map(p => `<div class="stat-card"><label>${p.provider}</label><div class="val">${p.inputTokens + p.outputTokens || 0}</div><div class="text-dim" style="font-size:0.7rem">~$${((p.inputTokens + p.outputTokens) * 0.00001).toFixed(4)}</div></div>`).join('');
+  const models = state.usage.models || {};
+  const modelData = Object.entries(models).map(([name, data]) => ({ name, tokens: (data.input || 0) + (data.output || 0) })).sort((a,b) => b.tokens - a.tokens).slice(0, 10);
+  renderModelChart(modelData);
+}
+
+function initCharts() {
+  const actCtx = $('activity-chart').getContext('2d');
+  activityChart = new Chart(actCtx, { type: 'line', data: { labels: Array.from({length: 24}, (_, i) => `${i}:00`), datasets: [{ label: 'Messages', data: state.activityHistory, borderColor: '#348ec6', backgroundColor: 'rgba(52,142,198,0.1)', fill: true, tension: 0.3 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#333' } }, x: { grid: { color: '#333' } } } } });
+  const modelCtx = $('model-chart').getContext('2d');
+  modelChart = new Chart(modelCtx, { type: 'doughnut', data: { labels: [], datasets: [{ data: [], backgroundColor: ['#cd248b','#b152c7','#348ec6','#22c55e','#f59e0b','#ef4444'] }] }, options: { responsive: true, plugins: { legend: { position: 'right', labels: { color: '#999', font: { size: 11 } } } } } });
+}
+
+function updateActivityChart() { if (activityChart) { activityChart.data.datasets[0].data = [...state.activityHistory]; activityChart.update(); } }
+function renderModelChart(data) { if (!modelChart || !data.length) return; modelChart.data.labels = data.map(d => d.name); modelChart.data.datasets[0].data = data.map(d => d.tokens); modelChart.update(); }
+
+function saveSettings() {
+  localStorage.setItem('ocdash_ip', $('sett-ip').value);
+  localStorage.setItem('ocdash_port', $('sett-port').value);
+  localStorage.setItem('ocdash_token', $('sett-token').value);
+  $('gateway-ip').value = $('sett-ip').value;
+  $('gateway-port').value = $('sett-port').value;
+  $('gateway-token').value = $('sett-token').value;
+  log('Settings saved', 'success');
+}
+
+function loadSettings() {
+  $('gateway-ip').value = localStorage.getItem('ocdash_ip') || 'localhost';
+  $('gateway-port').value = localStorage.getItem('ocdash_port') || '18789';
+  $('gateway-token').value = localStorage.getItem('ocdash_token') || '';
+  $('sett-ip').value = $('gateway-ip').value;
+  $('sett-port').value = $('gateway-port').value;
+  $('sett-token').value = $('gateway-token').value;
+}
+
+function exportJSON() {
+  const data = { agents: state.agents, sessions: state.sessions, subagents: state.subagents, usage: state.usage, activityHistory: state.activityHistory, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `openclaw-dashboard-${Date.now()}.json`; a.click();
+  URL.revokeObjectURL(url);
+  log('Exported dashboard data', 'success');
+}
+
+function formatDuration(ms) {
+  if (!ms) return '—';
+  const secs = Math.floor(ms / 1000);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+}
+
+document.addEventListener('DOMContentLoaded', () => { loadSettings(); initCharts(); log('Dashboard loaded. Configure gateway and click Connect.', 'info'); });
+</script>
+</body>
+</html>
